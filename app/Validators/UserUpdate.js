@@ -1,15 +1,16 @@
 'use strict'
 
 const Antl = use('Antl')
-class Session {
+
+class Store {
   get validateAll () {
     return true
   }
 
   get rules () {
     return {
-      email: 'required|email',
-      password: 'required'
+      username: 'required|unique:users',
+      password: 'confirmed'
     }
   }
 
@@ -18,4 +19,4 @@ class Session {
   }
 }
 
-module.exports = Session
+module.exports = Store

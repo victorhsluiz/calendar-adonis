@@ -1,92 +1,122 @@
 'use strict'
 
-/** @typedef {import('@adonisjs/framework/src/Request')} Request */
-/** @typedef {import('@adonisjs/framework/src/Response')} Response */
-/** @typedef {import('@adonisjs/framework/src/View')} View */
+const Appointment = use('App/Models/Appointment')
+const moment = require('moment')
 
-/**
- * Resourceful controller for interacting with appointments
- */
 class AppointmentController {
-  /**
-   * Show a list of all appointments.
-   * GET appointments
-   *
-   * @param {object} ctx
-   * @param {Request} ctx.request
-   * @param {Response} ctx.response
-   * @param {View} ctx.view
-   */
-  async index ({ request, response, view }) {
+  async index ({ request }) {
+    const { page, date } = request.get()
+
+    let query = Appointment.query().with('user')
+
+    if (date) {
+      query = query.whereRaw(`"date"::date = ?`, date)
+    }
+
+    const appointments = await query.paginate(page)
+
+    return appointments
   }
 
-  /**
-   * Render a form to be used for creating a new appointment.
-   * GET appointments/create
-   *
-   * @param {object} ctx
-   * @param {Request} ctx.request
-   * @param {Response} ctx.response
-   * @param {View} ctx.view
-   */
-  async create ({ request, response, view }) {
+  async store ({ request, response, auth }) {
+    const data = request.only(['title', 'location', 'date'])
+
+    try {
+      await Appointment.findByOrFail('date', data.date)
+
+      return response.status(401).send({
+        error: {
+          message: 'Não é possível definir dois compromissos no mesmo horário.'
+        }
+      })
+    } catch (error) {
+      const appointment = await Appointment.create({
+        ...data,
+        user_id: auth.user.id
+      })
+      return appointment
+    }
   }
 
-  /**
-   * Create/save a new appointment.
-   * POST appointments
-   *
-   * @param {object} ctx
-   * @param {Request} ctx.request
-   * @param {Response} ctx.response
-   */
-  async store ({ request, response }) {
+  async show ({ params, request, response, auth }) {
+    const appointment = await Appointment.findOrFail(params.id)
+
+    if (appointment.user_id !== auth.user.id) {
+      return response.status(401).send({
+        error: {
+          message:
+            'Os compromissos só podem ser visualizados pelo próprio criador'
+        }
+      })
+    }
+
+    return appointment
   }
 
-  /**
-   * Display a single appointment.
-   * GET appointments/:id
-   *
-   * @param {object} ctx
-   * @param {Request} ctx.request
-   * @param {Response} ctx.response
-   * @param {View} ctx.view
-   */
-  async show ({ params, request, response, view }) {
+  async update ({ params, request, response, auth }) {
+    const appointment = await Appointment.findOrFail(params.id)
+
+    if (appointment.user_id !== auth.user.id) {
+      return response.status(401).send({
+        error: {
+          message: 'Apenas o criador do compromisso pode edita-lo.'
+        }
+      })
+    }
+
+    const happened = moment().isAfter(appointment.date)
+
+    if (happened) {
+      return response.status(401).send({
+        error: {
+          message: 'Compromissos já realizados não podem ser editados.'
+        }
+      })
+    }
+
+    const data = request.only(['title', 'location', 'date'])
+
+    try {
+      const appointment = await Appointment.findByOrFail('date', data.date)
+      if (appointment.id !== Number(params.id)) {
+        return response.status(401).send({
+          error: {
+            message:
+              'Não é possível definir dois compromissos no mesmo horário.'
+          }
+        })
+      }
+    } catch (err) {}
+
+    appointment.merge(data)
+
+    await appointment.save()
+
+    return appointment
   }
 
-  /**
-   * Render a form to update an existing appointment.
-   * GET appointments/:id/edit
-   *
-   * @param {object} ctx
-   * @param {Request} ctx.request
-   * @param {Response} ctx.response
-   * @param {View} ctx.view
-   */
-  async edit ({ params, request, response, view }) {
-  }
+  async destroy ({ params, response, auth }) {
+    const appointment = await Appointment.findOrFail(params.id)
 
-  /**
-   * Update appointment details.
-   * PUT or PATCH appointments/:id
-   *
-   * @param {object} ctx
-   * @param {Request} ctx.request
-   * @param {Response} ctx.response
-   */
-  async update ({ params, request, response }) {
-  }
+    if (appointment.user_id !== auth.user.id) {
+      return response.status(401).send({
+        error: {
+          message: 'Apenas o criador do compromisso pode efetuar essa operação.'
+        }
+      })
+    }
 
-  /**
-   * Delete a appointment with id.
-   * DELETE appointments/:id
-   *
-   * @param {object} ctx
-   * @param {Request} ctx.request
-   * @param {Response} ctx.response
-   */
-  async destroy ({ params, request, response }) {
+    const happened = moment().isAfter(appointment.date)
+
+    if (happened) {
+      return response.status(401).send({
+        error: {
+          message: 'Compromissos já realizados não podem ser excluídos.'
+        }
+      })
+    }
+
+    await appointment.delete()
   }
 }
 
